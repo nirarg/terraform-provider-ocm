@@ -176,8 +176,8 @@ func (r *IdentityProviderResource) Create(ctx context.Context,
 	switch {
 	case state.HTPasswd != nil:
 		builder.Type(cmv1.IdentityProviderTypeHtpasswd)
-		htpasswdBuilder := idps.CreateHTPasswdIDPBuilder(ctx, state.HTPasswd)
-		builder.Htpasswd(htpasswdBuilder)
+		htpasswdListBuilder := idps.CreateHTPasswdIDPBuilder(ctx, state.HTPasswd)
+		builder.Htpasswd(cmv1.NewHTPasswdIdentityProvider().Users(htpasswdListBuilder))
 	case state.Gitlab != nil:
 		builder.Type(cmv1.IdentityProviderTypeGitlab)
 		gitlabBuilder, err := idps.CreateGitlabIDPBuilder(ctx, state.Gitlab)
@@ -323,16 +323,12 @@ func (r *IdentityProviderResource) Read(ctx context.Context, request tfsdk.ReadR
 		if state.HTPasswd == nil {
 			state.HTPasswd = &idps.HTPasswdIdentityProvider{}
 		}
-		username, ok := htpasswdObject.GetUsername()
-		if ok {
-			state.HTPasswd.Username = types.String{
-				Value: username,
-			}
-		}
-		password, ok := htpasswdObject.GetPassword()
-		if ok {
-			state.HTPasswd.Password = types.String{
-				Value: password,
+		usersList := htpasswdObject.Users().Slice()
+		state.HTPasswd.Users = make([]idps.HTPasswdUser, len(usersList))
+		for i, user := range usersList {
+			state.HTPasswd.Users[i] = idps.HTPasswdUser{
+				Username: types.String{Value: user.Username()},
+				Password: types.String{Value: user.Password()},
 			}
 		}
 	case gitlabObject != nil:
@@ -537,6 +533,39 @@ func (r *IdentityProviderResource) Read(ctx context.Context, request tfsdk.ReadR
 
 func (r *IdentityProviderResource) Update(ctx context.Context, request tfsdk.UpdateResourceRequest,
 	response *tfsdk.UpdateResourceResponse) {
+
+	// // Get the state:
+	// state := &IdentityProviderState{}
+	// diags = request.State.Get(ctx, state)
+	// response.Diagnostics.Append(diags...)
+	// if response.Diagnostics.HasError() {
+	// 	return
+	// }
+
+	// Get the plan:
+	plan := &IdentityProviderState{}
+	diags := request.Plan.Get(ctx, plan)
+	response.Diagnostics.Append(diags...)
+	if response.Diagnostics.HasError() {
+		return
+	}
+	tflog.Info(ctx, fmt.Sprintf("******* plan: %v", plan))
+	switch {
+	case plan.HTPasswd != nil:
+		idpClient := r.collection.Cluster(plan.Cluster.Value).IdentityProviders()
+		err := idps.UpdateHTPasswd(ctx, plan.HTPasswd, plan.ID.Value, idpClient)
+		if err != nil {
+			response.Diagnostics.AddError(
+				"Can't update HTPasswd identity provider",
+				fmt.Sprintf(
+					"Can't update HTPasswd identity provider with identifier '%s' for "+
+						"cluster '%s': %v",
+					plan.ID.Value, plan.Cluster.Value, err,
+				),
+			)
+			return
+		}
+	}
 }
 
 func (r *IdentityProviderResource) Delete(ctx context.Context, request tfsdk.DeleteResourceRequest,

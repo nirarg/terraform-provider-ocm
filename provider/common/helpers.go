@@ -24,7 +24,9 @@ import (
 	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	ocmerrors "github.com/openshift-online/ocm-sdk-go/errors"
 	"github.com/pkg/errors"
+	weberrors "github.com/zgalor/weberr"
 )
 
 const versionPrefix = "openshift-v"
@@ -134,4 +136,19 @@ func IsGreaterThanOrEqual(version1, version2 string) (bool, error) {
 		return false, err
 	}
 	return v1.GreaterThanOrEqual(v2), nil
+}
+
+func HandleErr(res *ocmerrors.Error, err error) error {
+	msg := res.Reason()
+	if msg == "" {
+		msg = err.Error()
+	}
+	// Hack to always display the correct terms and conditions message
+	if res.Code() == "CLUSTERS-MGMT-451" {
+		msg = "You must accept the Terms and Conditions in order to continue.\n" +
+			"Go to https://www.redhat.com/wapps/tnc/ackrequired?site=ocm&event=register\n" +
+			"Once you accept the terms, you will need to retry the action that was blocked."
+	}
+	errType := weberrors.ErrorType(res.Status())
+	return errType.Set(errors.Errorf("%s", msg))
 }
