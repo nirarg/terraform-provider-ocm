@@ -146,11 +146,12 @@ func generateBasicRosaClassicClusterState() *ClusterRosaClassicState {
 			HttpProxy:  types.StringValue(httpProxy),
 			HttpsProxy: types.StringValue(httpsProxy),
 		},
-		Sts:         &Sts{},
-		Replicas:    types.Int64Value(2),
-		MinReplicas: types.Int64Null(),
-		MaxReplicas: types.Int64Null(),
-		KMSKeyArn:   types.StringNull(),
+		Sts:              &Sts{},
+		Replicas:         types.Int64Value(2),
+		MinReplicas:      types.Int64Null(),
+		MaxReplicas:      types.Int64Null(),
+		KMSKeyArn:        types.StringNull(),
+		AdminCredentials: &AdminCredentials{},
 	}
 }
 
@@ -191,6 +192,14 @@ var _ = Describe("Rosa Classic Sts cluster", func() {
 			channel, ok := rosaClusterObject.Version().GetChannelGroup()
 			Expect(ok).To(BeTrue())
 			Expect(channel).To(Equal("stable"))
+
+			idp := rosaClusterObject.Htpasswd()
+			Expect(idp).NotTo(BeZero())
+			Expect(idp.Users().Len()).To(Equal(1))
+			user := idp.Users().Get(0)
+			Expect(user.Username()).To(Equal(clusterAdminUserName))
+			Expect(user.Password()).To(BeEmpty())
+			Expect(user.HashedPassword()).NotTo(BeEmpty())
 		})
 	})
 	It("Throws an error when version format is invalid", func() {

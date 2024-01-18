@@ -45,6 +45,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	idputils "github.com/openshift-online/ocm-common/pkg/idp/utils"
 	ocmConsts "github.com/openshift-online/ocm-common/pkg/ocm/consts"
 	sdk "github.com/openshift-online/ocm-sdk-go"
 	cmv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
@@ -76,6 +77,7 @@ const (
 	propertyRosaTfCommit      = tagsPrefix + "tf_commit"
 	waitTimeoutInMinutes      = 60
 	DefaultMachinePoolMessage = "This attribute is specifically applies for the default Machine Pool and becomes irrelevant once the resource is created. Any modifications to the default Machine Pool should be made through the Terraform imported Machine Pool resource. For more details, refer to [Default Machine Pool in ROSA Cluster](../guides/worker-machine-pool.md)"
+	clusterAdminUserName      = "cluster-admin"
 )
 
 var OCMProperties = map[string]string{
@@ -397,12 +399,13 @@ func (r *ClusterRosaClassicResource) Schema(ctx context.Context, req resource.Sc
 				Attributes: map[string]schema.Attribute{
 					"username": schema.StringAttribute{
 						Description: "Admin username that will be created with the cluster.",
-						Required:    true,
+						Computed:    true,
 						Validators:  identityprovider.HTPasswdUsernameValidators,
 					},
 					"password": schema.StringAttribute{
 						Description: "Admin password that will be created with the cluster.",
-						Required:    true,
+						Optional:    true,
+						Computed:    true,
 						Sensitive:   true,
 						Validators:  identityprovider.HTPasswdPasswordValidators,
 					},
@@ -681,11 +684,35 @@ func createClassicClusterObject(ctx context.Context,
 
 	if state.AdminCredentials != nil {
 		htpasswdUsers := []*cmv1.HTPasswdUserBuilder{}
+		var username, password string
+		if common.HasValue(state.AdminCredentials.Username) {
+			username = state.AdminCredentials.Username.ValueString()
+		} else {
+			username = clusterAdminUserName
+		}
+		if common.HasValue(state.AdminCredentials.Password) {
+			password = state.AdminCredentials.Password.ValueString()
+		} else {
+			password, err = idputils.GenerateRandomPassword()
+			if err != nil {
+				tflog.Error(ctx, "Failed to generate random password")
+				return nil, err
+			}
+		}
+		hashedPwd, err := idputils.GenerateHTPasswdCompatibleHash(password)
+		if err != nil {
+			tflog.Error(ctx, "Failed to hash the password")
+			return nil, err
+		}
 		htpasswdUsers = append(htpasswdUsers, cmv1.NewHTPasswdUser().
-			Username(state.AdminCredentials.Username.ValueString()).Password(state.AdminCredentials.Password.ValueString()))
+			Username(username).HashedPassword(hashedPwd))
 		htpassUserList := cmv1.NewHTPasswdUserList().Items(htpasswdUsers...)
 		htPasswdIDP := cmv1.NewHTPasswdIdentityProvider().Users(htpassUserList)
 		builder.Htpasswd(htPasswdIDP)
+		state.AdminCredentials = &AdminCredentials{
+			Username: types.StringValue(username),
+			Password: types.StringValue(password),
+		}
 	}
 
 	builder, err = buildProxy(state, builder)
