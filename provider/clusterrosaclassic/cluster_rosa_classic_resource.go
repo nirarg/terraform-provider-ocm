@@ -47,6 +47,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	idputils "github.com/openshift-online/ocm-common/pkg/idp/utils"
 	ocmConsts "github.com/openshift-online/ocm-common/pkg/ocm/consts"
+	commonutils "github.com/openshift-online/ocm-common/pkg/utils"
 	sdk "github.com/openshift-online/ocm-sdk-go"
 	cmv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
 	ocm_errors "github.com/openshift-online/ocm-sdk-go/errors"
@@ -77,7 +78,6 @@ const (
 	propertyRosaTfCommit      = tagsPrefix + "tf_commit"
 	waitTimeoutInMinutes      = 60
 	DefaultMachinePoolMessage = "This attribute is specifically applies for the default Machine Pool and becomes irrelevant once the resource is created. Any modifications to the default Machine Pool should be made through the Terraform imported Machine Pool resource. For more details, refer to [Default Machine Pool in ROSA Cluster](../guides/worker-machine-pool.md)"
-	clusterAdminUserName      = "cluster-admin"
 )
 
 var OCMProperties = map[string]string{
@@ -399,7 +399,9 @@ func (r *ClusterRosaClassicResource) Schema(ctx context.Context, req resource.Sc
 				Attributes: map[string]schema.Attribute{
 					"username": schema.StringAttribute{
 						Description: "Admin username that will be created with the cluster.",
+						Optional:    true,
 						Computed:    true,
+						Default:     stringdefault.StaticString(commonutils.ClusterAdminUsername),
 						Validators:  identityprovider.HTPasswdUsernameValidators,
 					},
 					"password": schema.StringAttribute{
@@ -683,13 +685,7 @@ func createClassicClusterObject(ctx context.Context,
 	}
 
 	if state.AdminCredentials != nil {
-		htpasswdUsers := []*cmv1.HTPasswdUserBuilder{}
-		var username, password string
-		if common.HasValue(state.AdminCredentials.Username) {
-			username = state.AdminCredentials.Username.ValueString()
-		} else {
-			username = clusterAdminUserName
-		}
+		var password string
 		if common.HasValue(state.AdminCredentials.Password) {
 			password = state.AdminCredentials.Password.ValueString()
 		} else {
@@ -704,13 +700,14 @@ func createClassicClusterObject(ctx context.Context,
 			tflog.Error(ctx, "Failed to hash the password")
 			return nil, err
 		}
+		htpasswdUsers := []*cmv1.HTPasswdUserBuilder{}
 		htpasswdUsers = append(htpasswdUsers, cmv1.NewHTPasswdUser().
-			Username(username).HashedPassword(hashedPwd))
+			Username(state.AdminCredentials.Username.ValueString()).HashedPassword(hashedPwd))
 		htpassUserList := cmv1.NewHTPasswdUserList().Items(htpasswdUsers...)
 		htPasswdIDP := cmv1.NewHTPasswdIdentityProvider().Users(htpassUserList)
 		builder.Htpasswd(htPasswdIDP)
 		state.AdminCredentials = &AdminCredentials{
-			Username: types.StringValue(username),
+			Username: types.StringValue(state.AdminCredentials.Username.ValueString()),
 			Password: types.StringValue(password),
 		}
 	}
