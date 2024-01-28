@@ -47,13 +47,13 @@ import (
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	idputils "github.com/openshift-online/ocm-common/pkg/idp/utils"
 	ocmConsts "github.com/openshift-online/ocm-common/pkg/ocm/consts"
-	commonutils "github.com/openshift-online/ocm-common/pkg/utils"
 	sdk "github.com/openshift-online/ocm-sdk-go"
 	cmv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
 	ocm_errors "github.com/openshift-online/ocm-sdk-go/errors"
 	"github.com/terraform-redhat/terraform-provider-rhcs/provider/common/attrvalidators"
 	"github.com/terraform-redhat/terraform-provider-rhcs/provider/proxy"
 
+	commonutils "github.com/openshift-online/ocm-common/pkg/utils"
 	"github.com/terraform-redhat/terraform-provider-rhcs/build"
 	ocmr "github.com/terraform-redhat/terraform-provider-rhcs/internal/ocm/resource"
 	"github.com/terraform-redhat/terraform-provider-rhcs/provider/clusterrosaclassic/upgrade"
@@ -401,7 +401,6 @@ func (r *ClusterRosaClassicResource) Schema(ctx context.Context, req resource.Sc
 						Description: "Admin username that will be created with the cluster.",
 						Optional:    true,
 						Computed:    true,
-						Default:     stringdefault.StaticString(commonutils.ClusterAdminUsername),
 						Validators:  identityprovider.HTPasswdUsernameValidators,
 					},
 					"password": schema.StringAttribute{
@@ -413,6 +412,7 @@ func (r *ClusterRosaClassicResource) Schema(ctx context.Context, req resource.Sc
 					},
 				},
 				Optional: true,
+				Computed: true,
 			},
 			"private_hosted_zone": schema.SingleNestedAttribute{
 				Description: "Used in a shared VPC topology. HostedZone attributes. " + common.ValueCannotBeChangedStringDescription,
@@ -684,33 +684,32 @@ func createClassicClusterObject(ctx context.Context,
 		builder.Version(vBuilder)
 	}
 
-	if state.AdminCredentials != nil {
-		var password string
-		if common.HasValue(state.AdminCredentials.Password) {
-			password = state.AdminCredentials.Password.ValueString()
-		} else {
+	username, password := expandAdminCredentials(ctx, state.AdminCredentials, diags)
+	if common.HasValue(state.AdminCredentials) {
+		if username == "" {
+			username = commonutils.ClusterAdminUsername
+		}
+		if password == "" {
 			password, err = idputils.GenerateRandomPassword()
 			if err != nil {
 				tflog.Error(ctx, "Failed to generate random password")
 				return nil, err
 			}
 		}
+
 		hashedPwd, err := idputils.GenerateHTPasswdCompatibleHash(password)
 		if err != nil {
 			tflog.Error(ctx, "Failed to hash the password")
 			return nil, err
 		}
-		htpasswdUsers := []*cmv1.HTPasswdUserBuilder{}
-		htpasswdUsers = append(htpasswdUsers, cmv1.NewHTPasswdUser().
-			Username(state.AdminCredentials.Username.ValueString()).HashedPassword(hashedPwd))
+		htpasswdUsers := []*cmv1.HTPasswdUserBuilder{
+			cmv1.NewHTPasswdUser().Username(username).HashedPassword(hashedPwd),
+		}
 		htpassUserList := cmv1.NewHTPasswdUserList().Items(htpasswdUsers...)
 		htPasswdIDP := cmv1.NewHTPasswdIdentityProvider().Users(htpassUserList)
 		builder.Htpasswd(htPasswdIDP)
-		state.AdminCredentials = &AdminCredentials{
-			Username: types.StringValue(state.AdminCredentials.Username.ValueString()),
-			Password: types.StringValue(password),
-		}
 	}
+	state.AdminCredentials = flattenAdminCredentials(username, password)
 
 	builder, err = buildProxy(state, builder)
 	if err != nil {
@@ -1045,7 +1044,7 @@ func validateNoImmutableAttChange(state, plan *ClusterRosaClassicState) diag.Dia
 	common.ValidateStateAndPlanEquals(state.AWSAdditionalComputeSecurityGroupIds, plan.AWSAdditionalComputeSecurityGroupIds, "aws_additional_compute_security_group_ids", &diags)
 
 	if !reflect.DeepEqual(state.AdminCredentials, plan.AdminCredentials) {
-		diags.AddError(common.AssertionErrorSummaryMessage, fmt.Sprintf(common.AssertionErrorDetailsMessage, "admin_credentials", *state.AdminCredentials, *plan.AdminCredentials))
+		diags.AddError(common.AssertionErrorSummaryMessage, fmt.Sprintf(common.AssertionErrorDetailsMessage, "admin_credentials", state.AdminCredentials, plan.AdminCredentials))
 	}
 	if !reflect.DeepEqual(state.PrivateHostedZone, plan.PrivateHostedZone) {
 		diags.AddError(common.AssertionErrorSummaryMessage, fmt.Sprintf(common.AssertionErrorDetailsMessage, "private_hosted_zone", *state.PrivateHostedZone, *plan.PrivateHostedZone))
