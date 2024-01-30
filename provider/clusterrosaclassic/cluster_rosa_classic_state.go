@@ -74,6 +74,7 @@ type ClusterRosaClassicState struct {
 	DestroyTimeout                            types.Int64        `tfsdk:"destroy_timeout"`
 	Ec2MetadataHttpTokens                     types.String       `tfsdk:"ec2_metadata_http_tokens"`
 	UpgradeAcksFor                            types.String       `tfsdk:"upgrade_acknowledgements_for"`
+	CreateAdminUser                           types.Bool         `tfsdk:"create_admin_user"`
 	AdminCredentials                          types.Object       `tfsdk:"admin_credentials"`
 	PrivateHostedZone                         *PrivateHostedZone `tfsdk:"private_hosted_zone"`
 	BaseDNSDomain                             types.String       `tfsdk:"base_dns_domain"`

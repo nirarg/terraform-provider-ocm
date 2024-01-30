@@ -394,6 +394,10 @@ func (r *ClusterRosaClassicResource) Schema(ctx context.Context, req resource.Sc
 					"upgrade to OpenShift 4.12.z from 4.11 or before).",
 				Optional: true,
 			},
+			"create_admin_user": schema.BoolAttribute{
+				Description: "Indicates if create cluster admin user",
+				Optional:    true,
+			},
 			"admin_credentials": schema.SingleNestedAttribute{
 				Description: "Admin user credentials. " + common.ValueCannotBeChangedStringDescription,
 				Attributes: map[string]schema.Attribute{
@@ -684,8 +688,13 @@ func createClassicClusterObject(ctx context.Context,
 		builder.Version(vBuilder)
 	}
 
-	username, password := expandAdminCredentials(ctx, state.AdminCredentials, diags)
-	if common.HasValue(state.AdminCredentials) {
+	if common.HasValue(state.CreateAdminUser) && state.CreateAdminUser.ValueBool() ||
+		common.HasValue(state.AdminCredentials) {
+		tflog.Info(ctx, "create cluster admin user!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+		if !common.HasValue(state.AdminCredentials) {
+			state.AdminCredentials = flattenAdminCredentials("", "")
+		}
+		username, password := expandAdminCredentials(ctx, state.AdminCredentials, diags)
 		if username == "" {
 			username = commonutils.ClusterAdminUsername
 		}
@@ -708,8 +717,9 @@ func createClassicClusterObject(ctx context.Context,
 		htpassUserList := cmv1.NewHTPasswdUserList().Items(htpasswdUsers...)
 		htPasswdIDP := cmv1.NewHTPasswdIdentityProvider().Users(htpassUserList)
 		builder.Htpasswd(htPasswdIDP)
+		tflog.Info(ctx, fmt.Sprintf("create cluster admin user: %s:%s", username, password))
+		state.AdminCredentials = flattenAdminCredentials(username, password)
 	}
-	state.AdminCredentials = flattenAdminCredentials(username, password)
 
 	builder, err = buildProxy(state, builder)
 	if err != nil {

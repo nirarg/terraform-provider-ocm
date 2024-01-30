@@ -147,14 +147,12 @@ func generateBasicRosaClassicClusterState() *ClusterRosaClassicState {
 			HttpProxy:  types.StringValue(httpProxy),
 			HttpsProxy: types.StringValue(httpsProxy),
 		},
-		Sts:         &Sts{},
-		Replicas:    types.Int64Value(2),
-		MinReplicas: types.Int64Null(),
-		MaxReplicas: types.Int64Null(),
-		KMSKeyArn:   types.StringNull(),
-		AdminCredentials: &AdminCredentials{
-			Username: types.StringValue(commonutils.ClusterAdminUsername),
-		},
+		Sts:              &Sts{},
+		Replicas:         types.Int64Value(2),
+		MinReplicas:      types.Int64Null(),
+		MaxReplicas:      types.Int64Null(),
+		KMSKeyArn:        types.StringNull(),
+		AdminCredentials: flattenAdminCredentials(commonutils.ClusterAdminUsername, ""),
 	}
 }
 
