@@ -688,13 +688,12 @@ func createClassicClusterObject(ctx context.Context,
 		builder.Version(vBuilder)
 	}
 
-	if common.HasValue(state.CreateAdminUser) && state.CreateAdminUser.ValueBool() ||
-		common.HasValue(state.AdminCredentials) {
+	username, password := expandAdminCredentials(ctx, state.AdminCredentials, diags)
+	if common.BoolWithFalseDefault(state.CreateAdminUser) || common.HasValue(state.AdminCredentials) {
 		tflog.Info(ctx, "create cluster admin user!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 		if !common.HasValue(state.AdminCredentials) {
 			state.AdminCredentials = flattenAdminCredentials("", "")
 		}
-		username, password := expandAdminCredentials(ctx, state.AdminCredentials, diags)
 		if username == "" {
 			username = commonutils.ClusterAdminUsername
 		}
@@ -718,8 +717,8 @@ func createClassicClusterObject(ctx context.Context,
 		htPasswdIDP := cmv1.NewHTPasswdIdentityProvider().Users(htpassUserList)
 		builder.Htpasswd(htPasswdIDP)
 		tflog.Info(ctx, fmt.Sprintf("create cluster admin user: %s:%s", username, password))
-		state.AdminCredentials = flattenAdminCredentials(username, password)
 	}
+	state.AdminCredentials = flattenAdminCredentials(username, password)
 
 	builder, err = buildProxy(state, builder)
 	if err != nil {
